@@ -47,13 +47,47 @@ const VideoEditor = () => {
       setLogoSrc(url);
     }
   };
+  const convertAudioToAAC = async (audioTrack) => {
+    const audioContext = new AudioContext();
 
-  const startRecording = () => {
-    if (canvasRef.current) {
+    // Create a media stream source from the captured audio track
+    const mediaStreamSource = audioContext.createMediaStreamSource(
+      new MediaStream([audioTrack])
+    );
+
+    // Create a MediaStreamDestination to output the processed audio
+    const destination = audioContext.createMediaStreamDestination();
+
+    // Connect the media stream source to the destination
+    mediaStreamSource.connect(destination);
+
+    // Now `destination.stream` has the processed audio in a new stream
+    return destination.stream.getAudioTracks()[0]; // Return the processed audio track
+  };
+
+  const startRecording = async () => {
+    if (canvasRef.current && videoRef.current) {
       chunksRef.current = [];
-      const stream = canvasRef.current.captureStream(30); // 30 FPS
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: "video/webm;codecs=vp9",
+
+      // Capture video stream from the canvas
+      const canvasStream = canvasRef.current.captureStream(30); // 30 FPS
+
+      // Capture video and audio stream from the video element
+      const videoStream = videoRef.current.captureStream();
+      const audioTrack = videoStream.getAudioTracks()[0]; // Get the original audio track
+
+      // Optionally process the audio track (convert to AAC)
+      const processedAudioTrack = await convertAudioToAAC(audioTrack);
+
+      // Combine video (canvas) and the processed audio
+      const combinedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        processedAudioTrack, // Add the audio track to the stream
+      ]);
+
+      // Set the MIME type to include AAC audio
+      mediaRecorderRef.current = new MediaRecorder(combinedStream, {
+        mimeType: "video/mp4; codecs=avc1.42E01E, mp4a.40.2", // Ensure AAC audio codec
       });
 
       mediaRecorderRef.current.ondataavailable = (e) => {
@@ -63,11 +97,11 @@ const VideoEditor = () => {
       };
 
       mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        const blob = new Blob(chunksRef.current, { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "edited-video.webm";
+        a.download = "edited-video.mp4";
         document.body.appendChild(a);
         a.click();
         URL.revokeObjectURL(url);
