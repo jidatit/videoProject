@@ -435,7 +435,7 @@ const VideoEditor = () => {
             {/* Logo Positions */}
             <div className="space-y-4">
               <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Logo Position
+                Logo Frame Placement
               </label>
               <div className="grid grid-cols-2 gap-3">
                 {Object.entries(logoPositions).map(([position, isActive]) => (
@@ -461,7 +461,7 @@ const VideoEditor = () => {
               {/* Color Selector */}
               <div className="space-y-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Logo Color
+                  Logo Bg Color
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {Object.entries(colors).map(([color, isActive]) => (
