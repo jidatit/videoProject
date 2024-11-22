@@ -489,14 +489,14 @@ const VideoEditor = () => {
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
                   Logo Duration (in seconds)
                 </label>
-                <div className="relative max-w-sm">
+                <div className="relative max-w-sm ">
                   <input
                     type="number"
                     placeholder="Enter duration"
                     value={logoDuration}
                     onChange={handleInputChange}
                     className="
-            w-full px-4 py-3 text-gray-700 bg-gray-100 rounded-lg shadow-md
+            w-full px-4 py-3 text-gray-700 bg-gray-200 rounded-lg shadow-md border-1 border-gray-300
             focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white transition-all duration-200
           "
                   />
