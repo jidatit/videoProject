@@ -2,14 +2,15 @@ import React from "react";
 
 const FinalResultPreview = ({ concatenatedUrl, canvasRef }) => {
   return (
-    <div className="w-full">
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden transform transition-all duration-300 hover:scale-[1.02] hover:shadow-3xl">
+    <div className="w-full mt-8">
+      <div className="bg-white rounded-2xl  border border-gray-100 overflow-hidden transform transition-all duration-300 hover:scale-[1.02] hover:shadow-3xl">
+        <canvas ref={canvasRef} className="w-0 h-0" />
         <div className="p-6">
           <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
             <span className="w-3 h-3 bg-green-500 rounded-full mr-3"></span>
             Final Result
           </h3>
-          <canvas ref={canvasRef} className="w-0 h-0" />
+
           {concatenatedUrl ? (
             <div className="space-y-4">
               <h3 className="text-lg font-medium mb-2">Final Result</h3>

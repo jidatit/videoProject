@@ -67,12 +67,12 @@ const VideoPreviews = ({
   mainVideoRef,
 }) => {
   return (
-    <div className="mt-12 grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="mt-12 grid grid-rows-1 lg:grid-rows-2 gap-8">
       <VideoPreviewCard
-        title="Intro Video"
+        title="Logo Preview"
         videoSrc={previewSrc}
         videoRef={previewVideoRef}
-        placeholderText="Add an intro video"
+        placeholderText="Add an Logo Preview"
       />
       <VideoPreviewCard
         title="Main Video"

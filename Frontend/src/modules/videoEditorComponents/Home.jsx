@@ -28,7 +28,12 @@ const VideoEditor = () => {
     2: false,
     3: false,
   });
+  const [logoDuration, setLogoDuration] = useState(1); // State to store the input value
 
+  const handleInputChange = (event) => {
+    const value = event.target.value;
+    setLogoDuration(value);
+  };
   const toggleColors = (color) => {
     setColors((prev) =>
       Object.keys(prev).reduce(
@@ -91,17 +96,17 @@ const VideoEditor = () => {
     });
 
     const fps = 60;
-    let duration = 1; // Default duration
+    let duration = logoDuration; // Default duration
 
-    if (timeOptions[1] === true) {
-      duration = 1; // Set duration to 1 second
-    }
-    if (timeOptions[2] === true) {
-      duration = 2; // Set duration to 2 seconds
-    }
-    if (timeOptions[3] === true) {
-      duration = 3; // Set duration to 3 seconds
-    }
+    // if (timeOptions[1] === true) {
+    //   duration = 1; // Set duration to 1 second
+    // }
+    // if (timeOptions[2] === true) {
+    //   duration = 2; // Set duration to 2 seconds
+    // }
+    // if (timeOptions[3] === true) {
+    //   duration = 3; // Set duration to 3 seconds
+    // }
 
     const totalFrames = fps * duration;
     let frame = 0;
@@ -176,7 +181,7 @@ const VideoEditor = () => {
       console.log("Animation", logoPositions);
       generateVideoClip(logoPositions, colors, timeOptions);
     }
-  }, [logoPositions, logoSrc, colors, timeOptions]);
+  }, [logoPositions, logoSrc, colors, logoDuration]);
 
   const handleVideoUpload = (event) => {
     const file = event.target.files[0];
@@ -353,9 +358,9 @@ const VideoEditor = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-12 px-4">
       <div className="max-w-7xl mx-auto bg-gradient-to-br from-white/70 via-white/90 to-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100 p-8">
-        <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-8 text-center">
+        {/* <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-8 text-center">
           Professional Video Editor
-        </h2>
+        </h2> */}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           {/* Left Panel - Controls */}
@@ -480,28 +485,21 @@ const VideoEditor = () => {
               </div>
 
               {/* Time Selector */}
-              <div className="space-y-4">
+              <div className="space-y-4 mb-2">
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Transition Duration
+                  Logo Duration (in seconds)
                 </label>
-                <div className="grid grid-cols-3 gap-3">
-                  {Object.entries(timeOptions).map(([time, isActive]) => (
-                    <button
-                      key={time}
-                      onClick={() => toggleTimeOptions(time)}
-                      className={`
-                flex items-center justify-center px-4 py-3 ml-4 rounded-xl transition-all duration-200
-                ${
-                  isActive
-                    ? "bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }
-              `}
-                    >
-                      {isActive && <Check className="w-4 h-4 mr-2" />}
-                      {time}
-                    </button>
-                  ))}
+                <div className="relative max-w-sm">
+                  <input
+                    type="number"
+                    placeholder="Enter duration"
+                    value={logoDuration}
+                    onChange={handleInputChange}
+                    className="
+            w-full px-4 py-3 text-gray-700 bg-gray-100 rounded-lg shadow-md
+            focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white transition-all duration-200
+          "
+                  />
                 </div>
               </div>
             </div>
@@ -533,18 +531,28 @@ const VideoEditor = () => {
                 </div>
               )}
             </div> */}
-
-            <FinalResultPreview
-              canvasRef={canvasRef}
-              concatenatedUrl={concatenatedUrl}
+            <VideoPreviews
+              previewSrc={previewSrc}
+              videoSrc={videoSrc}
+              previewVideoRef={previewVideoRef}
+              mainVideoRef={mainVideoRef}
             />
+
             {/* Action Buttons */}
-            <div className="flex gap-4 justify-center">
-              {logoSrc && (
-                <button
-                  onClick={concatenateVideos}
-                  disabled={isProcessing || !previewSrc || !videoSrc}
-                  className={`
+          </div>
+        </div>
+
+        {/* Video Previews */}
+        <FinalResultPreview
+          canvasRef={canvasRef}
+          concatenatedUrl={concatenatedUrl}
+        />
+        <div className="flex gap-4 justify-center mt-6">
+          {logoSrc && (
+            <button
+              onClick={concatenateVideos}
+              disabled={isProcessing || !previewSrc || !videoSrc}
+              className={`
                   px-6 py-3 rounded-xl font-medium transition-all duration-200
                   ${
                     isProcessing || !previewSrc || !videoSrc
@@ -552,42 +560,32 @@ const VideoEditor = () => {
                       : "bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-200"
                   }
                 `}
-                >
-                  {isProcessing ? (
-                    <span className="flex items-center">
-                      <span className="animate-spin mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4"></span>
-                      Processing...
-                    </span>
-                  ) : (
-                    "Add Logo to Video"
-                  )}
-                </button>
+            >
+              {isProcessing ? (
+                <span className="flex items-center">
+                  <span className="animate-spin mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4"></span>
+                  Processing...
+                </span>
+              ) : (
+                "Add Logo to Video"
               )}
+            </button>
+          )}
 
-              {concatenatedUrl && (
-                <button
-                  onClick={() => {
-                    const a = document.createElement("a");
-                    a.href = concatenatedUrl;
-                    a.download = "edited-video.mp4";
-                    a.click();
-                  }}
-                  className="px-6 py-3 bg-green-500 ml-4 text-white rounded-xl font-medium hover:bg-green-600 transition-all duration-200 shadow-lg shadow-green-200"
-                >
-                  Download Video
-                </button>
-              )}
-            </div>
-          </div>
+          {concatenatedUrl && (
+            <button
+              onClick={() => {
+                const a = document.createElement("a");
+                a.href = concatenatedUrl;
+                a.download = "edited-video.mp4";
+                a.click();
+              }}
+              className="px-6 py-3 bg-green-500 ml-4 text-white rounded-xl font-medium hover:bg-green-600 transition-all duration-200 shadow-lg shadow-green-200"
+            >
+              Download Video
+            </button>
+          )}
         </div>
-
-        {/* Video Previews */}
-        <VideoPreviews
-          previewSrc={previewSrc}
-          videoSrc={videoSrc}
-          previewVideoRef={previewVideoRef}
-          mainVideoRef={mainVideoRef}
-        />
       </div>
     </div>
   );
