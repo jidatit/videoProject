@@ -1,36 +1,182 @@
-import React, { useState, useRef, useEffect } from "react";
-import {
-  Upload,
-  Play,
-  Pause,
-  Image as ImageIcon,
-  Check,
-  Download,
-  Sun,
-  Contrast,
-} from "lucide-react";
-
+import { useState, useRef, useEffect } from "react";
+import { Upload, Image as ImageIcon, Check } from "lucide-react";
+import VideoPreviews from "./VideoPreviews";
+import FinalResultPreview from "./FinalPreview";
 const VideoEditor = () => {
   const [videoSrc, setVideoSrc] = useState(null);
   const [logoSrc, setLogoSrc] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [logoPositions, setLogoPositions] = useState({
     start: false,
-    overlay: false,
     end: false,
   });
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [filters, setFilters] = useState({
-    brightness: 100,
-    contrast: 100,
-  });
-  const [isRecording, setIsRecording] = useState(false);
 
-  const videoRef = useRef(null);
+  const [previewSrc, setPreviewSrc] = useState(null);
+  const mainVideoRef = useRef(null);
   const canvasRef = useRef(null);
+  const previewVideoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [concatenatedUrl, setConcatenatedUrl] = useState(null);
+  const [colors, setColors] = useState({
+    white: false,
+    black: false,
+  });
+
+  const [timeOptions, setTimeOptions] = useState({
+    1: false,
+    2: false,
+    3: false,
+  });
+
+  const toggleColors = (color) => {
+    setColors((prev) =>
+      Object.keys(prev).reduce(
+        (acc, key) => ({
+          ...acc,
+          [key]: key === color,
+        }),
+        {}
+      )
+    );
+  };
+
+  const toggleTimeOptions = (time) => {
+    setTimeOptions((prev) =>
+      Object.keys(prev).reduce(
+        (acc, key) => ({
+          ...acc,
+          [key]: key === time,
+        }),
+        {}
+      )
+    );
+  };
+  const generateVideoClip = async (position, colors, timeOptions) => {
+    if (!logoSrc) return;
+    console.log("position", position);
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = 640;
+    canvas.height = 360;
+
+    // Create a media stream from the canvas
+    const stream = canvas.captureStream(30); // 30 FPS
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: "video/mp4; codecs=avc1.42E01E, mp4a.40.2",
+    });
+
+    chunksRef.current = [];
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunksRef.current.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      setPreviewSrc(url);
+    };
+
+    // Start recording with timeslice to ensure consistent data collection
+    mediaRecorder.start(100); // Record in 100ms chunks
+
+    // Create 3-second animation
+    const logo = new Image();
+    logo.src = logoSrc;
+
+    await new Promise((resolve) => {
+      logo.onload = resolve;
+    });
+
+    const fps = 60;
+    let duration = 1; // Default duration
+
+    if (timeOptions[1] === true) {
+      duration = 1; // Set duration to 1 second
+    }
+    if (timeOptions[2] === true) {
+      duration = 2; // Set duration to 2 seconds
+    }
+    if (timeOptions[3] === true) {
+      duration = 3; // Set duration to 3 seconds
+    }
+
+    const totalFrames = fps * duration;
+    let frame = 0;
+    let startTime = null;
+
+    const animate = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+
+      // Ensure we run for exactly 3 seconds
+      if (elapsed >= duration * 1000) {
+        mediaRecorder.stop();
+        return;
+      }
+
+      // Calculate current frame based on actual elapsed time
+      frame = Math.min(Math.floor((elapsed / 1000) * fps), totalFrames - 1);
+
+      if (colors.white == true) {
+        ctx.fillStyle = "white";
+      }
+
+      if (colors.black == true) {
+        ctx.fillStyle = "black";
+      }
+      // Clear canvas
+      if (colors.white == false && colors.black == false) {
+        ctx.fillStyle = "black";
+      }
+
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Calculate logo size (30% of canvas)
+      const maxWidth = canvas.width * 0.3;
+      const maxHeight = canvas.height * 0.3;
+      let logoWidth = logo.width;
+      let logoHeight = logo.height;
+
+      if (logoWidth > maxWidth) {
+        const ratio = maxWidth / logoWidth;
+        logoWidth *= ratio;
+        logoHeight *= ratio;
+      }
+
+      if (logoHeight > maxHeight) {
+        const ratio = maxHeight / logoHeight;
+        logoWidth *= ratio;
+        logoHeight *= ratio;
+      }
+
+      // Center logo
+      const x = (canvas.width - logoWidth) / 2;
+      const y = (canvas.height - logoHeight) / 2;
+
+      // Add fade animation
+      const progress = elapsed / (duration * 1000);
+      ctx.globalAlpha =
+        position.start == true || position.end == true
+          ? 1 - progress // Fade out for start
+          : progress; // Fade in for end
+
+      ctx.drawImage(logo, x, y, logoWidth, logoHeight);
+
+      requestAnimationFrame(animate);
+    };
+
+    requestAnimationFrame(animate);
+  };
+
+  useEffect(() => {
+    if (logoPositions.start || logoPositions.end) {
+      console.log("Animation", logoPositions);
+      generateVideoClip(logoPositions, colors, timeOptions);
+    }
+  }, [logoPositions, logoSrc, colors, timeOptions]);
 
   const handleVideoUpload = (event) => {
     const file = event.target.files[0];
@@ -47,48 +193,85 @@ const VideoEditor = () => {
       setLogoSrc(url);
     }
   };
-  const convertAudioToAAC = async (audioTrack) => {
-    const audioContext = new AudioContext();
 
-    // Create a media stream source from the captured audio track
-    const mediaStreamSource = audioContext.createMediaStreamSource(
-      new MediaStream([audioTrack])
-    );
-
-    // Create a MediaStreamDestination to output the processed audio
-    const destination = audioContext.createMediaStreamDestination();
-
-    // Connect the media stream source to the destination
-    mediaStreamSource.connect(destination);
-
-    // Now `destination.stream` has the processed audio in a new stream
-    return destination.stream.getAudioTracks()[0]; // Return the processed audio track
+  const togglePosition = (position) => {
+    setLogoPositions((prev) => ({
+      ...prev,
+      [position]: !prev[position],
+    }));
   };
 
-  const startRecording = async () => {
-    if (canvasRef.current && videoRef.current) {
-      chunksRef.current = [];
+  // const getVideoDuration = (videoElement) => {
+  //   return new Promise((resolve) => {
+  //     videoElement.onloadedmetadata = () => {
+  //       resolve(videoElement.duration);
+  //     };
+  //   });
+  // };
 
-      // Capture video stream from the canvas
-      const canvasStream = canvasRef.current.captureStream(30); // 30 FPS
+  // Function to fetch video as blob
 
-      // Capture video and audio stream from the video element
-      const videoStream = videoRef.current.captureStream();
-      const audioTrack = videoStream.getAudioTracks()[0]; // Get the original audio track
+  // Function to get video duration
+  const getVideoDuration = (videoElement) => {
+    return new Promise((resolve) => {
+      videoElement.onloadedmetadata = () => {
+        resolve(videoElement.duration);
+      };
+    });
+  };
 
-      // Optionally process the audio track (convert to AAC)
-      const processedAudioTrack = await convertAudioToAAC(audioTrack);
+  const concatenateVideos = async () => {
+    try {
+      setIsProcessing(true);
 
-      // Combine video (canvas) and the processed audio
-      const combinedStream = new MediaStream([
-        ...canvasStream.getVideoTracks(),
-        processedAudioTrack, // Add the audio track to the stream
-      ]);
+      // Create temporary video elements
+      const tempPreview = document.createElement("video");
+      tempPreview.src = previewSrc;
+      await tempPreview.load();
 
-      // Set the MIME type to include AAC audio
+      const tempMain = document.createElement("video");
+      tempMain.src = videoSrc;
+      await tempMain.load();
+
+      // Wait for video metadata to load
+      const previewDuration = await getVideoDuration(tempPreview);
+      const mainDuration = await getVideoDuration(tempMain);
+
+      // Set up canvas with correct dimensions
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+
+      canvas.width = Math.max(tempPreview.videoWidth, tempMain.videoWidth);
+      canvas.height = Math.max(tempPreview.videoHeight, tempMain.videoHeight);
+
+      // Create audio context and sources
+      const audioContext = new AudioContext();
+      const previewAudioSource =
+        audioContext.createMediaElementSource(tempPreview);
+      const mainAudioSource = audioContext.createMediaElementSource(tempMain);
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Connect audio sources to destination
+      previewAudioSource.connect(destination);
+      mainAudioSource.connect(destination);
+
+      // Combine video and audio streams
+      const videoStream = canvas.captureStream(30);
+      const audioStream = destination.stream;
+
+      const combinedTracks = [
+        ...videoStream.getVideoTracks(),
+        ...audioStream.getAudioTracks(),
+      ];
+
+      const combinedStream = new MediaStream(combinedTracks);
+
+      // Create new MediaRecorder with combined streams
       mediaRecorderRef.current = new MediaRecorder(combinedStream, {
-        mimeType: "video/mp4; codecs=avc1.42E01E, mp4a.40.2", // Ensure AAC audio codec
+        mimeType: "video/mp4; codecs=avc1.42E01E, mp4a.40.2",
       });
+
+      chunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (e) => {
         if (e.data.size > 0) {
@@ -99,303 +282,312 @@ const VideoEditor = () => {
       mediaRecorderRef.current.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "edited-video.mp4";
-        document.body.appendChild(a);
-        a.click();
-        URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        setConcatenatedUrl(url);
+        setIsProcessing(false);
+
+        // Clean up audio context and tracks
+        audioContext.close();
+        combinedTracks.forEach((track) => track.stop());
       };
 
+      // Start recording
       mediaRecorderRef.current.start();
-      setIsRecording(true);
-      videoRef.current.currentTime = 0;
-      videoRef.current.play();
-    }
-  };
 
-  const handleDownload = () => {
-    if (videoRef.current && !isRecording) {
-      startRecording();
-    }
-  };
+      // Function to draw video frame
+      const drawFrame = (video) => {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      };
 
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
+      // Helper function to play and record a video
+      const playAndRecordVideo = (video, duration) =>
+        new Promise((resolve) => {
+          video.currentTime = 0;
+          video.play();
+
+          const draw = () => {
+            if (video.currentTime < duration) {
+              drawFrame(video);
+              requestAnimationFrame(draw);
+            } else {
+              video.pause();
+              resolve();
+            }
+          };
+          draw();
+        });
+      console.log("done", logoPositions);
+      // Play videos based on the logoPosition
+      if (logoPositions.start === true) {
+        // Add the preview video at the start
+        await playAndRecordVideo(tempPreview, previewDuration);
       }
-      setIsPlaying(!isPlaying);
+
+      // Add the main video
+      await playAndRecordVideo(tempMain, mainDuration);
+
+      if (logoPositions.end === true) {
+        // Add the preview video at the end
+        await playAndRecordVideo(tempPreview, previewDuration);
+      }
+
+      // Stop recording
+      mediaRecorderRef.current.stop();
+    } catch (error) {
+      console.error("Error concatenating videos:", error);
+      setIsProcessing(false);
     }
   };
 
-  const togglePosition = (position) => {
-    setLogoPositions((prev) => ({
-      ...prev,
-      [position]: !prev[position],
-    }));
-  };
-
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
-
-  const handleFilterChange = (filterType, value) => {
-    setFilters((prev) => ({
-      ...prev,
-      [filterType]: value,
-    }));
-  };
-
-  const drawFrame = () => {
-    if (!canvasRef.current || !videoRef.current) return;
-
-    const ctx = canvasRef.current.getContext("2d");
-    const video = videoRef.current;
-
-    // Set canvas size to match video
-    canvasRef.current.width = video.videoWidth;
-    canvasRef.current.height = video.videoHeight;
-
-    // Clear canvas
-    ctx.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
-    ctx.drawImage(
-      video,
-      0,
-      0,
-      canvasRef.current.width,
-      canvasRef.current.height
+  const CustomButton = ({ onClick, disabled, children }) => {
+    return (
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        className={`px-6 py-2 rounded-lg border-2 font-semibold text-white transition-colors 
+          ${disabled ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}
+      >
+        {children}
+      </button>
     );
-
-    // Draw intro/outro logos
-    if (logoSrc) {
-      const logoImg = new Image();
-      logoImg.src = logoSrc;
-
-      const showIntroLogo = currentTime < 2;
-      const showOutroLogo = duration > 0 && currentTime > duration - 2;
-
-      if (
-        (showIntroLogo && logoPositions.start) ||
-        (showOutroLogo && logoPositions.end)
-      ) {
-        // Draw white background
-        ctx.filter = "none";
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-
-        // Draw centered logo
-        const logoSize =
-          Math.min(canvasRef.current.width, canvasRef.current.height) / 3;
-        const x = (canvasRef.current.width - logoSize) / 2;
-        const y = (canvasRef.current.height - logoSize) / 2;
-        ctx.drawImage(logoImg, x, y, logoSize, logoSize);
-      }
-
-      // Draw overlay logo
-      if (logoPositions.overlay && !showIntroLogo && !showOutroLogo) {
-        ctx.filter = "none";
-        const overlaySize = canvasRef.current.width / 10;
-        ctx.drawImage(
-          logoImg,
-          canvasRef.current.width - overlaySize - 20,
-          20,
-          overlaySize,
-          overlaySize
-        );
-      }
-    }
-
-    requestAnimationFrame(drawFrame);
   };
-
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.addEventListener("loadedmetadata", () => {
-        setDuration(videoRef.current.duration);
-      });
-
-      videoRef.current.addEventListener("ended", () => {
-        if (isRecording) {
-          mediaRecorderRef.current.stop();
-          setIsRecording(false);
-        }
-      });
-    }
-
-    const animationFrame = requestAnimationFrame(drawFrame);
-    return () => cancelAnimationFrame(animationFrame);
-  }, [videoSrc, logoSrc, filters, logoPositions, currentTime, duration]);
-
   return (
-    <div className="w-full max-w-4xl mx-auto p-4 space-y-6">
-      <div className="bg-gray-100 rounded-lg p-6">
-        <h2 className="text-2xl font-bold mb-4">Video Editor</h2>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-12 px-4">
+      <div className="max-w-7xl mx-auto bg-gradient-to-br from-white/70 via-white/90 to-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100 p-8">
+        <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-8 text-center">
+          Professional Video Editor
+        </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                Upload Video
-              </label>
-              <label className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg cursor-pointer hover:bg-blue-600 transition-colors">
-                <Upload className="w-5 h-5 mr-2" />
-                Choose Video
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={handleVideoUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                Upload Logo
-              </label>
-              <div className="space-y-2">
-                <label className="flex items-center px-4 py-2 bg-green-500 text-white rounded-lg cursor-pointer hover:bg-green-600 transition-colors">
-                  <ImageIcon className="w-5 h-5 mr-2" />
-                  Choose Logo
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+          {/* Left Panel - Controls */}
+          <div className="space-y-8">
+            {/* Upload Section */}
+            <div className="space-y-6">
+              {/* Video Upload */}
+              <div className="relative">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Upload Video
+                </label>
+                <label className="flex items-center justify-center w-full h-32 px-4 transition bg-white border-2 border-gray-300 border-dashed rounded-xl hover:border-indigo-500 hover:bg-gray-50 cursor-pointer group">
+                  <div className="space-y-2 text-center">
+                    <Upload className="w-8 h-8 mx-auto text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                    <div className="text-sm text-gray-600">
+                      <span className="font-medium text-indigo-500">
+                        Click to upload
+                      </span>{" "}
+                      or drag and drop
+                    </div>
+                    <p className="text-xs text-gray-500">MP4, WebM, or AVI</p>
+                  </div>
                   <input
                     type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
+                    accept="video/*"
+                    onChange={handleVideoUpload}
                     className="hidden"
                   />
                 </label>
-                {logoSrc && (
-                  <div className="mt-2 p-2 bg-white rounded-lg">
-                    <p className="text-sm font-medium mb-1">Logo Preview:</p>
-                    <img
-                      src={logoSrc}
-                      alt="Logo preview"
-                      className="w-16 h-16 object-contain"
+              </div>
+
+              {/* Logo Upload */}
+              <div className="relative">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Upload Logo
+                </label>
+                <div className="space-y-4">
+                  <label className="flex items-center justify-center w-full h-32 px-4 transition bg-white border-2 border-gray-300 border-dashed rounded-xl hover:border-indigo-500 hover:bg-gray-50 cursor-pointer group">
+                    <div className="space-y-2 text-center">
+                      <ImageIcon className="w-8 h-8 mx-auto text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium text-indigo-500">
+                          Upload logo
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">PNG, JPG, or SVG</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      className="hidden"
                     />
-                  </div>
-                )}
+                  </label>
+
+                  {logoSrc && (
+                    <div className="p-4 bg-gray-50 rounded-xl">
+                      <p className="text-sm font-medium text-gray-700 mb-2">
+                        Logo Preview
+                      </p>
+                      <img
+                        src={logoSrc}
+                        alt="Logo preview"
+                        className="w-20 h-20 object-contain mx-auto"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Logo Positions */}
+            <div className="space-y-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Logo Position
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {Object.entries(logoPositions).map(([position, isActive]) => (
+                  <button
+                    key={position}
+                    onClick={() => togglePosition(position)}
+                    className={`
+                    flex items-center justify-center px-4 py-3 ml-4 rounded-xl transition-all duration-200
+                    ${
+                      isActive
+                        ? "bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }
+                  `}
+                  >
+                    {isActive && <Check className="w-4 h-4 mr-2" />}
+                    {position.charAt(0).toUpperCase() + position.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-6">
+              {/* Color Selector */}
+              <div className="space-y-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Logo Color
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {Object.entries(colors).map(([color, isActive]) => (
+                    <button
+                      key={color}
+                      onClick={() => toggleColors(color)}
+                      className={`
+                flex items-center justify-center px-4 py-3 ml-4 rounded-xl transition-all duration-200
+                ${
+                  isActive
+                    ? "bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }
+              `}
+                    >
+                      {isActive && <Check className="w-4 h-4 mr-2" />}
+                      {color.charAt(0).toUpperCase() + color.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Time Selector */}
+              <div className="space-y-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Transition Duration
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {Object.entries(timeOptions).map(([time, isActive]) => (
+                    <button
+                      key={time}
+                      onClick={() => toggleTimeOptions(time)}
+                      className={`
+                flex items-center justify-center px-4 py-3 ml-4 rounded-xl transition-all duration-200
+                ${
+                  isActive
+                    ? "bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }
+              `}
+                    >
+                      {isActive && <Check className="w-4 h-4 mr-2" />}
+                      {time}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
+          {/* Right Panel - Preview */}
+          <div className="space-y-6">
+            {/* Preview Section */}
+            {/* {!concatenatedUrl && (
+              <div className="flex">
+                <div className=" bg-gray-200 rounded-lg flex items-center justify-center w-full">
+                  <p className="text-gray-500">Edit a video to preview</p>
+                </div>
+              </div>
+            )}
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                Brightness
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="200"
-                value={filters.brightness}
-                onChange={(e) =>
-                  handleFilterChange("brightness", e.target.value)
-                }
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Contrast</label>
-              <input
-                type="range"
-                min="0"
-                max="200"
-                value={filters.contrast}
-                onChange={(e) => handleFilterChange("contrast", e.target.value)}
-                className="w-full"
-              />
-            </div>
-          </div>
-        </div>
+            <div className="flex ">
+              <canvas ref={canvasRef} className="hidden" />
+              {concatenatedUrl && (
+                <div>
+                  <h3 className="text-lg font-medium mb-2">
+                    Concatenated Result
+                  </h3>
+                  <video
+                    src={concatenatedUrl}
+                    className="w-full rounded-xl"
+                    controls
+                    autoPlay
+                  />
+                </div>
+              )}
+            </div> */}
 
-        <div className="mb-6">
-          <label className="block text-sm font-medium mb-2">
-            Logo Positions
-          </label>
-          <div className="flex flex-wrap gap-4">
-            {Object.entries(logoPositions).map(([position, isActive]) => (
-              <button
-                key={position}
-                onClick={() => togglePosition(position)}
-                className={`flex items-center px-4 py-2 rounded-lg ${
-                  isActive
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-200 hover:bg-gray-300"
-                }`}
-              >
-                {isActive && <Check className="w-4 h-4 mr-2" />}
-                {position.charAt(0).toUpperCase() + position.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="relative">
-          {videoSrc ? (
-            <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-              <video
-                ref={videoRef}
-                src={videoSrc}
-                className="hidden"
-                onTimeUpdate={handleTimeUpdate}
-              />
-              <canvas ref={canvasRef} className="w-full h-full" />
-
-              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-30 flex items-center space-x-4">
+            <FinalResultPreview
+              canvasRef={canvasRef}
+              concatenatedUrl={concatenatedUrl}
+            />
+            {/* Action Buttons */}
+            <div className="flex gap-4 justify-center">
+              {logoSrc && (
                 <button
-                  onClick={togglePlay}
-                  className="bg-white/80 p-2 rounded-full hover:bg-white transition-colors"
-                  disabled={isRecording}
+                  onClick={concatenateVideos}
+                  disabled={isProcessing || !previewSrc || !videoSrc}
+                  className={`
+                  px-6 py-3 rounded-xl font-medium transition-all duration-200
+                  ${
+                    isProcessing || !previewSrc || !videoSrc
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-200"
+                  }
+                `}
                 >
-                  {isPlaying ? (
-                    <Pause className="w-6 h-6" />
+                  {isProcessing ? (
+                    <span className="flex items-center">
+                      <span className="animate-spin mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4"></span>
+                      Processing...
+                    </span>
                   ) : (
-                    <Play className="w-6 h-6" />
+                    "Add Logo to Video"
                   )}
                 </button>
-                <button
-                  onClick={handleDownload}
-                  className="bg-green-500/80 p-2 rounded-full hover:bg-green-500 transition-colors text-white"
-                  disabled={isRecording}
-                >
-                  <Download className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="aspect-video bg-gray-200 rounded-lg flex items-center justify-center">
-              <p className="text-gray-500">Upload a video to preview</p>
-            </div>
-          )}
-        </div>
+              )}
 
-        {videoSrc && (
-          <div className="mt-4">
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-blue-500 h-2 rounded-full"
-                style={{ width: `${(currentTime / duration) * 100}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between items-center text-sm text-gray-600">
-              <span>
-                {Math.floor(currentTime)}s / {Math.floor(duration)}s
-              </span>
-              <div className="flex items-center space-x-2">
-                <Sun className="w-4 h-4" />
-                <span>{filters.brightness}%</span>
-                <Contrast className="w-4 h-4 ml-2" />
-                <span>{filters.contrast}%</span>
-              </div>
+              {concatenatedUrl && (
+                <button
+                  onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = concatenatedUrl;
+                    a.download = "edited-video.mp4";
+                    a.click();
+                  }}
+                  className="px-6 py-3 bg-green-500 ml-4 text-white rounded-xl font-medium hover:bg-green-600 transition-all duration-200 shadow-lg shadow-green-200"
+                >
+                  Download Video
+                </button>
+              )}
             </div>
           </div>
-        )}
+        </div>
+
+        {/* Video Previews */}
+        <VideoPreviews
+          previewSrc={previewSrc}
+          videoSrc={videoSrc}
+          previewVideoRef={previewVideoRef}
+          mainVideoRef={mainVideoRef}
+        />
       </div>
     </div>
   );
