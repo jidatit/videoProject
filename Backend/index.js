@@ -11,7 +11,6 @@ const app = express();
 
 // Enable CORS
 app.use(cors());
-app.use(express.json());
 
 // Configure multer for file upload
 const upload = multer({ dest: "uploads/" });
@@ -61,106 +60,138 @@ function normalizeVideo(
           options: targetFps,
         },
       ])
-      .videoCodec("libx264")
-      .audioCodec("aac")
-      .outputOptions("-pix_fmt yuv420p") // Ensure compatibility
+      .videoCodec("libx264") // Ensure the video codec is set for compatibility
+      .audioCodec("aac") // Re-encode the audio to 'aac' for compatibility if needed
+      .outputOptions("-pix_fmt yuv420p") // Ensure pixel format compatibility
       .on("end", () => resolve(outputPath))
       .on("error", (err) => reject(err))
       .save(outputPath);
   });
 }
 
-// Route for concatenating videos
 app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
-  const { start, end } = req.query;
-
   if (req.files.length !== 2) {
     return res.status(400).send("You must upload exactly two videos.");
   }
-
-  const video1 = req.files[0].path; // Main video
-  const video2 = req.files[1].path; // Intro/outro video
-
-  const processedVideo1 = path.join(outputDir, "processed_video1.mp4");
-  const muteVideo2 = path.join(outputDir, "mute_video2.mp4");
+  const { positions, offset } = req.body;
+  console.log("position: " + positions, offset);
+  const video1 = req.files[0].path; // First video (may not have audio)
+  const video2 = req.files[1].path; // Second video (has audio or no audio)
+  const processedVideo1 = path.join(
+    outputDir,
+    `processed_${req.files[0].originalname}`
+  );
+  const processedVideo2 = path.join(
+    outputDir,
+    `processed_${req.files[1].originalname}`
+  );
   const outputPath = path.join(outputDir, "concatenated.mp4");
   const concatListPath = path.join(outputDir, "concat_list.txt");
 
   try {
-    const targetWidth = 1920;
-    const targetHeight = 1080;
-    const targetFps = 30;
+    // Normalize both videos (the first video may have no audio, the second video has audio)
+    await normalizeVideo(video1, processedVideo1, 640, 360, 15); // Process video1 (first video) at lower quality
+    await normalizeVideo(video2, processedVideo2, 640, 360, 15); // Process video2 (second video) at lower quality
 
-    // Normalize main video
-    await normalizeVideo(
-      video1,
-      processedVideo1,
-      targetWidth,
-      targetHeight,
-      targetFps
-    );
+    // Extract audio from processed video 1 (if available)
+    const audio1Path = path.join(outputDir, "audio1.wav");
 
-    // Normalize and mute intro/outro video
+    // Extract audio from processed video 1 (if available)
+    ffmpeg(processedVideo1)
+      .output(audio1Path)
+      .noVideo() // Only extract audio
+      .audioCodec("pcm_s16le") // Use pcm_s16le codec for raw audio
+      .on("end", () => {
+        console.log("Audio extraction for video1 completed");
+      })
+      .on("error", (err) => {
+        console.error("Error extracting audio for video1:", err);
+      })
+      .run();
+
+    // Wait for audio extraction to finish before proceeding with concatenation
     await new Promise((resolve, reject) => {
-      ffmpeg(video2)
-        .videoCodec("libx264")
-        .size(`${targetWidth}x${targetHeight}`)
-        .fps(targetFps)
-        .audioCodec("aac")
-        .audioFilters("volume=0") // Mute audio
-        .output(muteVideo2)
-        .on("end", resolve)
-        .on("error", reject)
-        .run();
+      const audioExtractionTimeout = setInterval(() => {
+        if (fs.existsSync(audio1Path)) {
+          clearInterval(audioExtractionTimeout);
+          resolve();
+        }
+      }, 1000);
+
+      setTimeout(() => {
+        clearInterval(audioExtractionTimeout);
+        reject(new Error("Audio extraction timed out"));
+      }, 30000); // Timeout after 30 seconds if audio extraction doesn't finish
     });
 
-    // Determine concatenation order
-    const isStart = start === "true";
-    const isEnd = end === "true";
+    // Create a concat list file (processedVideo2 -> processedVideo1)
+    const parsedPositions =
+      typeof positions === "string" ? JSON.parse(positions) : positions;
 
-    let concatVideos = [];
-    if (isStart && isEnd) {
-      concatVideos = [muteVideo2, processedVideo1, muteVideo2];
-    } else if (isStart) {
-      concatVideos = [muteVideo2, processedVideo1];
-    } else if (isEnd) {
-      concatVideos = [processedVideo1, muteVideo2];
+    console.log("Parsed Positions:", parsedPositions); // Debugging log for positions
+
+    // Generate the concat list based on parsedPositions
+    if (parsedPositions.start === true && parsedPositions.end === true) {
+      fs.writeFileSync(
+        concatListPath,
+        `file '${processedVideo2}'\nfile '${processedVideo1}'\nfile '${processedVideo2}'`
+      );
+    } else if (
+      parsedPositions.start === true &&
+      parsedPositions.end === false
+    ) {
+      fs.writeFileSync(
+        concatListPath,
+        `file '${processedVideo2}'\nfile '${processedVideo1}'`
+      );
+    } else if (
+      parsedPositions.end === true &&
+      parsedPositions.start === false
+    ) {
+      fs.writeFileSync(
+        concatListPath,
+        `file '${processedVideo1}'\nfile '${processedVideo2}'`
+      );
     } else {
-      concatVideos = [processedVideo1];
+      throw new Error("Invalid positions: Cannot create concat list.");
     }
+    // Check if concat_list.txt exists
+    if (!fs.existsSync(concatListPath)) {
+      throw new Error(`Concat list file not found at path: ${concatListPath}`);
+    }
+    console.log(
+      "Concat list file created successfully:",
+      fs.readFileSync(concatListPath, "utf-8")
+    );
 
-    // Prepare concat list
-    const concatContent =
-      concatVideos.map((video) => `file '${video}'`).join("\n") + "\n";
-    fs.writeFileSync(concatListPath, concatContent);
-
-    // Concatenate videos
+    // Concatenate videos with stream mapping
     ffmpeg()
-      .input(concatListPath)
-      .inputOptions("-f", "concat", "-safe", "0")
-      .videoCodec("libx264")
-      .audioCodec("aac")
-      .outputOptions("-pix_fmt", "yuv420p", "-preset", "fast")
+      .input(concatListPath) // Add the video concat list as input
+      .inputOptions("-f", "concat", "-safe", "0") // Correctly specify the concat format options
+      .input(audio1Path) // Add the extracted audio for processedVideo1
+      .inputOptions("-itsoffset", `${offset}`) // Apply the specified offset to the audio
+      .outputOptions("-map", "0:v") // Map all video streams from concatList
+      .outputOptions("-map", "1:a") // Map the delayed audio for processedVideo1
+      .outputOptions("-c:v", "copy") // Copy video codec without re-encoding
+      .outputOptions("-c:a", "aac") // Re-encode audio to AAC
+      .outputOptions("-pix_fmt", "yuv420p") // Ensure proper pixel format
       .on("end", () => {
         res.download(outputPath, (err) => {
           if (err) {
             console.error("Error downloading the file:", err);
           }
           // Clean up temporary files
-          [
-            video1,
-            video2,
-            processedVideo1,
-            muteVideo2,
-            concatListPath,
-            outputPath,
-          ].forEach((file) => {
-            try {
-              fs.unlinkSync(file);
-            } catch (cleanupErr) {
-              console.error("Error during cleanup:", cleanupErr);
-            }
-          });
+          try {
+            fs.unlinkSync(video1);
+            fs.unlinkSync(video2);
+            fs.unlinkSync(processedVideo1);
+            fs.unlinkSync(processedVideo2);
+            fs.unlinkSync(concatListPath);
+            fs.unlinkSync(outputPath);
+            fs.unlinkSync(audio1Path);
+          } catch (cleanupErr) {
+            console.error("Error during cleanup:", cleanupErr);
+          }
         });
       })
       .on("error", (err) => {

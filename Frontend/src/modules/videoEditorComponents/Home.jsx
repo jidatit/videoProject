@@ -25,7 +25,9 @@ const VideoEditor = () => {
     white: false,
     black: false,
   });
-
+  const [estimatedTime, setEstimatedTime] = useState(null);
+  const [showEstimatedTime, setShowEstimatedTime] = useState(null);
+  const [videoDuration, setVideoDuration] = useState(null);
   const [timeOptions, setTimeOptions] = useState({
     1: false,
     2: false,
@@ -192,6 +194,45 @@ const VideoEditor = () => {
     if (file) {
       const url = URL.createObjectURL(file);
       setVideoSrc(url);
+
+      // Create a temporary video element to load and get duration
+      const tempVideo = document.createElement("video");
+      tempVideo.src = url;
+
+      tempVideo.onloadedmetadata = () => {
+        const duration = tempVideo.duration; // Duration in seconds
+        setVideoDuration(duration);
+
+        // Determine estimated time based on duration ranges
+        let estimatedTimeText = "";
+        if (duration <= 120) {
+          // 1 to 2 minutes
+          estimatedTimeText = "1 or half minute";
+        } else if (duration <= 240) {
+          // 3 to 4 minutes
+          estimatedTimeText = "1 or half minutes";
+        } else if (duration <= 300) {
+          // 5 minutes
+          estimatedTimeText = "1 or 2 minutes";
+        } else if (duration <= 600) {
+          // 6 to 10 minutes
+          estimatedTimeText = "3 to 4 minutes";
+        } else if (duration <= 1020) {
+          // 11 to 17 minutes
+          estimatedTimeText = "5 to 6 minutes";
+        } else if (duration <= 1520) {
+          // 11 to 17 minutes
+          estimatedTimeText = "6 to 7 minutes";
+        } else if (duration <= 1820) {
+          // 11 to 17 minutes
+          estimatedTimeText = "7 to 8 minutes";
+        } else {
+          // Greater than 17 minutes
+          estimatedTimeText = "9+ minutes (processing may take longer)";
+        }
+
+        setEstimatedTime(estimatedTimeText);
+      };
     }
   };
 
@@ -233,34 +274,47 @@ const VideoEditor = () => {
   const concatenateVideos = async () => {
     try {
       setIsLoading(true);
+      setShowEstimatedTime(true);
       const formData = new FormData();
 
       // Fetch the Blob data from the URL
       const blobResponse = await fetch(previewSrc);
       const blob = await blobResponse.blob();
-      const fileFromBlob = new File([blob], "video2.mp4", {
+
+      // Create files with custom names
+      const fileFromBlob = new File([blob], "custom_video2.mp4", {
+        type: "video/mp4",
+      });
+      const firstVideoFile = new File([videoFile1], "custom_video1.mp4", {
         type: "video/mp4",
       });
 
-      formData.append("videos", videoFile1); // Append the first video
-      formData.append("videos", fileFromBlob); // Append the second video
+      // Append videos with custom names
+      formData.append("videos", firstVideoFile);
+      formData.append("videos", fileFromBlob);
+      formData.append("positions", JSON.stringify(logoPositions)); // Send positions as JSON
+      if (logoPositions.start == false) {
+        formData.append("offset", 0); // Send offset value
+      } else {
+        formData.append("offset", logoDuration); // Send offset value
+      }
 
       const response = await axios.post(
         "http://localhost:3001/concat-videos",
         formData,
         {
-          params: {
-            start: logoPositions.start,
-            end: logoPositions.end,
+          headers: {
+            "Content-Type": "multipart/form-data",
           },
-          headers: { "Content-Type": "multipart/form-data" },
           responseType: "blob",
         }
       );
 
       // Create a URL for the downloaded file
       const downloadUrl = URL.createObjectURL(response.data);
+
       setConcatenatedUrl(downloadUrl);
+      setShowEstimatedTime(false);
     } catch (error) {
       console.error(
         "Error uploading videos:",
@@ -268,10 +322,10 @@ const VideoEditor = () => {
       );
       alert("There was an error processing your videos.");
     } finally {
+      setShowEstimatedTime(false);
       setIsLoading(false);
     }
   };
-
   // Add this progress bar component to display the progress
   const ProgressBar = () => (
     <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
@@ -486,54 +540,67 @@ const VideoEditor = () => {
           canvasRef={canvasRef}
           concatenatedUrl={concatenatedUrl}
         />
-        <div className="flex gap-4 justify-center mt-6">
-          <div>
-            {isProcessing && (
-              <div className="mt-4">
-                <ProgressBar />
-                <p className="text-center text-sm text-gray-600">
-                  Processing: {progress}%
-                </p>
-              </div>
-            )}
-            {/* Rest of your component */}
-          </div>
-          {logoSrc && (
-            <button
-              onClick={concatenateVideos}
-              disabled={isProcessing || !previewSrc || !videoSrc}
-              className={`
-                  px-6 py-3 rounded-xl font-medium transition-all duration-200
-                  ${
-                    isProcessing || !previewSrc || !videoSrc
-                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                      : "bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-200"
-                  }
-                `}
-            >
-              {isProcessing ? (
-                <span className="flex items-center">
-                  <span className="animate-spin mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4"></span>
-                  Processing...
-                </span>
-              ) : (
-                "Add Logo to Video"
+        <div className="flex flex-col gap-y-4 justify-center items-center">
+          <div className="flex gap-4 justify-center mt-6">
+            <div>
+              {isProcessing && (
+                <div className="mt-4">
+                  <ProgressBar />
+                  <p className="text-center text-sm text-gray-600">
+                    Processing: {progress}%
+                  </p>
+                </div>
               )}
-            </button>
-          )}
+              {/* Rest of your component */}
+            </div>
+            {logoSrc && (
+              <button
+                onClick={concatenateVideos}
+                disabled={isLoading || !previewSrc || !videoSrc}
+                className={`
+          px-6 py-3 rounded-xl font-medium transition-all duration-200
+          ${
+            isLoading || !previewSrc || !videoSrc
+              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+              : "bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-200"
+          }
+        `}
+              >
+                {isLoading ? (
+                  <span className="flex items-center">
+                    <span className="animate-spin mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4"></span>
+                    Processing...
+                  </span>
+                ) : (
+                  "Add Logo to Video"
+                )}
+              </button>
+            )}
 
-          {concatenatedUrl && (
-            <button
-              onClick={() => {
-                const a = document.createElement("a");
-                a.href = concatenatedUrl;
-                a.download = "edited-video.mp4";
-                a.click();
-              }}
-              className="px-6 py-3 bg-green-500 ml-4 text-white rounded-xl font-medium hover:bg-green-600 transition-all duration-200 shadow-lg shadow-green-200"
-            >
-              Download Video
-            </button>
+            {concatenatedUrl && (
+              <button
+                onClick={() => {
+                  const a = document.createElement("a");
+                  a.href = concatenatedUrl;
+                  a.download = "edited-video.mp4";
+                  a.click();
+                }}
+                className="px-6 py-3 bg-green-500 ml-4 text-white rounded-xl font-medium hover:bg-green-600 transition-all duration-200 shadow-lg shadow-green-200"
+              >
+                Download Video
+              </button>
+            )}
+          </div>
+          {showEstimatedTime && (
+            <p className="text-gray-600 ml-4 font-radios  ">
+              Estimated Processing Time: {estimatedTime}
+            </p>
+          )}
+          {videoDuration && (
+            <p className="text-gray-600 font-radios">
+              Video Duration: {Math.floor(videoDuration / 60)} min{" "}
+              {Math.floor(videoDuration % 60)} sec
+            </p>
           )}
         </div>
       </div>
