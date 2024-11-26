@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { Upload, Image as ImageIcon, Check } from "lucide-react";
 import VideoPreviews from "./VideoPreviews";
 import FinalResultPreview from "./FinalPreview";
+import axios from "axios";
+
 const VideoEditor = () => {
   const [videoSrc, setVideoSrc] = useState(null);
   const [logoSrc, setLogoSrc] = useState(null);
@@ -9,7 +11,8 @@ const VideoEditor = () => {
     start: false,
     end: false,
   });
-
+  const [videoFile1, setVideoFile1] = useState(null);
+  const [videoFile2, setVideoFile2] = useState(null);
   const [previewSrc, setPreviewSrc] = useState(null);
   const mainVideoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -66,9 +69,9 @@ const VideoEditor = () => {
     canvas.height = 360;
 
     // Create a media stream from the canvas
-    const stream = canvas.captureStream(30); // 30 FPS
+    const stream = canvas.captureStream(90); // 30 FPS
     const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: "video/mp4; codecs=avc1.42E01E, mp4a.40.2",
+      mimeType: "video/mp4",
     });
 
     chunksRef.current = [];
@@ -95,7 +98,7 @@ const VideoEditor = () => {
       logo.onload = resolve;
     });
 
-    const fps = 60;
+    const fps = 30;
     let duration = logoDuration; // Default duration
 
     // if (timeOptions[1] === true) {
@@ -185,6 +188,7 @@ const VideoEditor = () => {
 
   const handleVideoUpload = (event) => {
     const file = event.target.files[0];
+    setVideoFile1(file);
     if (file) {
       const url = URL.createObjectURL(file);
       setVideoSrc(url);
@@ -224,124 +228,59 @@ const VideoEditor = () => {
       };
     });
   };
-
+  const [progress, setProgress] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const concatenateVideos = async () => {
     try {
-      setIsProcessing(true);
+      setIsLoading(true);
+      const formData = new FormData();
 
-      // Create temporary video elements
-      const tempPreview = document.createElement("video");
-      tempPreview.src = previewSrc;
-      await tempPreview.load();
-
-      const tempMain = document.createElement("video");
-      tempMain.src = videoSrc;
-      await tempMain.load();
-
-      // Wait for video metadata to load
-      const previewDuration = await getVideoDuration(tempPreview);
-      const mainDuration = await getVideoDuration(tempMain);
-
-      // Set up canvas with correct dimensions
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-
-      canvas.width = Math.max(tempPreview.videoWidth, tempMain.videoWidth);
-      canvas.height = Math.max(tempPreview.videoHeight, tempMain.videoHeight);
-
-      // Create audio context and sources
-      const audioContext = new AudioContext();
-      const previewAudioSource =
-        audioContext.createMediaElementSource(tempPreview);
-      const mainAudioSource = audioContext.createMediaElementSource(tempMain);
-      const destination = audioContext.createMediaStreamDestination();
-
-      // Connect audio sources to destination
-      previewAudioSource.connect(destination);
-      mainAudioSource.connect(destination);
-
-      // Combine video and audio streams
-      const videoStream = canvas.captureStream(30);
-      const audioStream = destination.stream;
-
-      const combinedTracks = [
-        ...videoStream.getVideoTracks(),
-        ...audioStream.getAudioTracks(),
-      ];
-
-      const combinedStream = new MediaStream(combinedTracks);
-
-      // Create new MediaRecorder with combined streams
-      mediaRecorderRef.current = new MediaRecorder(combinedStream, {
-        mimeType: "video/mp4; codecs=avc1.42E01E, mp4a.40.2",
+      // Fetch the Blob data from the URL
+      const blobResponse = await fetch(previewSrc);
+      const blob = await blobResponse.blob();
+      const fileFromBlob = new File([blob], "video2.mp4", {
+        type: "video/mp4",
       });
 
-      chunksRef.current = [];
+      formData.append("videos", videoFile1); // Append the first video
+      formData.append("videos", fileFromBlob); // Append the second video
 
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
+      const response = await axios.post(
+        "http://localhost:3001/concat-videos",
+        formData,
+        {
+          params: {
+            start: logoPositions.start,
+            end: logoPositions.end,
+          },
+          headers: { "Content-Type": "multipart/form-data" },
+          responseType: "blob",
         }
-      };
+      );
 
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "video/mp4" });
-        const url = URL.createObjectURL(blob);
-        setConcatenatedUrl(url);
-        setIsProcessing(false);
-
-        // Clean up audio context and tracks
-        audioContext.close();
-        combinedTracks.forEach((track) => track.stop());
-      };
-
-      // Start recording
-      mediaRecorderRef.current.start();
-
-      // Function to draw video frame
-      const drawFrame = (video) => {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      };
-
-      // Helper function to play and record a video
-      const playAndRecordVideo = (video, duration) =>
-        new Promise((resolve) => {
-          video.currentTime = 0;
-          video.play();
-
-          const draw = () => {
-            if (video.currentTime < duration) {
-              drawFrame(video);
-              requestAnimationFrame(draw);
-            } else {
-              video.pause();
-              resolve();
-            }
-          };
-          draw();
-        });
-      console.log("done", logoPositions);
-      // Play videos based on the logoPosition
-      if (logoPositions.start === true) {
-        // Add the preview video at the start
-        await playAndRecordVideo(tempPreview, previewDuration);
-      }
-
-      // Add the main video
-      await playAndRecordVideo(tempMain, mainDuration);
-
-      if (logoPositions.end === true) {
-        // Add the preview video at the end
-        await playAndRecordVideo(tempPreview, previewDuration);
-      }
-
-      // Stop recording
-      mediaRecorderRef.current.stop();
+      // Create a URL for the downloaded file
+      const downloadUrl = URL.createObjectURL(response.data);
+      setConcatenatedUrl(downloadUrl);
     } catch (error) {
-      console.error("Error concatenating videos:", error);
-      setIsProcessing(false);
+      console.error(
+        "Error uploading videos:",
+        error.response ? error.response.data : error.message
+      );
+      alert("There was an error processing your videos.");
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  // Add this progress bar component to display the progress
+  const ProgressBar = () => (
+    <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+      <div
+        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+        style={{ width: `${progress}%` }}
+      />
+    </div>
+  );
 
   const CustomButton = ({ onClick, disabled, children }) => {
     return (
@@ -548,6 +487,17 @@ const VideoEditor = () => {
           concatenatedUrl={concatenatedUrl}
         />
         <div className="flex gap-4 justify-center mt-6">
+          <div>
+            {isProcessing && (
+              <div className="mt-4">
+                <ProgressBar />
+                <p className="text-center text-sm text-gray-600">
+                  Processing: {progress}%
+                </p>
+              </div>
+            )}
+            {/* Rest of your component */}
+          </div>
           {logoSrc && (
             <button
               onClick={concatenateVideos}
