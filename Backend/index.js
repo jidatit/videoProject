@@ -166,29 +166,44 @@ app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
 
     // Concatenate videos with stream mapping
     ffmpeg()
-      .input(concatListPath) // Add the video concat list as input
-      .inputOptions("-f", "concat", "-safe", "0") // Correctly specify the concat format options
-      .input(audio1Path) // Add the extracted audio for processedVideo1
-      .inputOptions("-itsoffset", `${offset}`) // Apply the specified offset to the audio
-      .outputOptions("-map", "0:v") // Map all video streams from concatList
-      .outputOptions("-map", "1:a") // Map the delayed audio for processedVideo1
-      .outputOptions("-c:v", "copy") // Copy video codec without re-encoding
-      .outputOptions("-c:a", "aac") // Re-encode audio to AAC
-      .outputOptions("-pix_fmt", "yuv420p") // Ensure proper pixel format
+      .input(concatListPath)
+      .inputOptions("-f", "concat", "-safe", "0")
+      .input(audio1Path)
+      .outputOptions("-map", "0:v") // Map video from concat list
+      .outputOptions("-map", "[delayed_audio]") // Map the delayed audio
+      .outputOptions(
+        "-filter_complex",
+        `
+      [1:a]adelay=${offset * 1000}:all=1[delayed_audio]
+    `
+      ) // Explicitly delay the audio using adelay filter
+      .outputOptions("-c:v", "copy")
+      .outputOptions("-c:a", "aac")
+      .outputOptions("-pix_fmt", "yuv420p")
       .on("end", () => {
         res.download(outputPath, (err) => {
           if (err) {
             console.error("Error downloading the file:", err);
+            return res.status(500).send("Error downloading the file");
           }
-          // Clean up temporary files
+
+          // Cleanup code
           try {
-            fs.unlinkSync(video1);
-            fs.unlinkSync(video2);
-            fs.unlinkSync(processedVideo1);
-            fs.unlinkSync(processedVideo2);
-            fs.unlinkSync(concatListPath);
-            fs.unlinkSync(outputPath);
-            fs.unlinkSync(audio1Path);
+            [
+              video1,
+              video2,
+              processedVideo1,
+              processedVideo2,
+              concatListPath,
+              outputPath,
+              audio1Path,
+            ].forEach((file) => {
+              try {
+                fs.unlinkSync(file);
+              } catch (cleanupErr) {
+                console.error(`Error deleting ${file}:`, cleanupErr);
+              }
+            });
           } catch (cleanupErr) {
             console.error("Error during cleanup:", cleanupErr);
           }

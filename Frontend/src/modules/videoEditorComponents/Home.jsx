@@ -3,6 +3,7 @@ import { Upload, Image as ImageIcon, Check } from "lucide-react";
 import VideoPreviews from "./VideoPreviews";
 import FinalResultPreview from "./FinalPreview";
 import axios from "axios";
+import { toast } from "sonner";
 
 const VideoEditor = () => {
   const [videoSrc, setVideoSrc] = useState(null);
@@ -12,12 +13,10 @@ const VideoEditor = () => {
     end: false,
   });
   const [videoFile1, setVideoFile1] = useState(null);
-  const [videoFile2, setVideoFile2] = useState(null);
   const [previewSrc, setPreviewSrc] = useState(null);
   const mainVideoRef = useRef(null);
   const canvasRef = useRef(null);
   const previewVideoRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [concatenatedUrl, setConcatenatedUrl] = useState(null);
@@ -36,7 +35,7 @@ const VideoEditor = () => {
   const [logoDuration, setLogoDuration] = useState(1); // State to store the input value
 
   const handleInputChange = (event) => {
-    const value = event.target.value;
+    const value = event.target.value; // Ensure the value doesn't exceed 10
     setLogoDuration(value);
   };
   const toggleColors = (color) => {
@@ -45,18 +44,6 @@ const VideoEditor = () => {
         (acc, key) => ({
           ...acc,
           [key]: key === color,
-        }),
-        {}
-      )
-    );
-  };
-
-  const toggleTimeOptions = (time) => {
-    setTimeOptions((prev) =>
-      Object.keys(prev).reduce(
-        (acc, key) => ({
-          ...acc,
-          [key]: key === time,
         }),
         {}
       )
@@ -184,7 +171,11 @@ const VideoEditor = () => {
   useEffect(() => {
     if (logoPositions.start || logoPositions.end) {
       console.log("Animation", logoPositions);
-      generateVideoClip(logoPositions, colors, timeOptions);
+      if (logoDuration > 10) {
+        toast.error("Duration exceeded 10 seconds, adjusting to 10 seconds");
+      } else {
+        generateVideoClip(logoPositions, colors, timeOptions);
+      }
     }
   }, [logoPositions, logoSrc, colors, logoDuration]);
 
@@ -312,7 +303,7 @@ const VideoEditor = () => {
 
       // Create a URL for the downloaded file
       const downloadUrl = URL.createObjectURL(response.data);
-
+      toast.success("Video is ready to be downloaded...");
       setConcatenatedUrl(downloadUrl);
       setShowEstimatedTime(false);
     } catch (error) {
@@ -320,7 +311,7 @@ const VideoEditor = () => {
         "Error uploading videos:",
         error.response ? error.response.data : error.message
       );
-      alert("There was an error processing your videos.");
+      toast.error("There was an error processing your videos.");
     } finally {
       setShowEstimatedTime(false);
       setIsLoading(false);
@@ -478,23 +469,17 @@ const VideoEditor = () => {
               </div>
 
               {/* Time Selector */}
-              <div className="space-y-4 mb-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Logo Duration (in seconds)
-                </label>
-                <div className="relative max-w-sm ">
-                  <input
-                    type="number"
-                    placeholder="Enter duration"
-                    value={logoDuration}
-                    onChange={handleInputChange}
-                    className="
-            w-full px-4 py-3 text-gray-700 bg-gray-200 rounded-lg shadow-md border-1 border-gray-300
-            focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white transition-all duration-200
-          "
-                  />
-                </div>
-              </div>
+              <input
+                type="number"
+                placeholder="Enter duration"
+                value={logoDuration}
+                onChange={handleInputChange}
+                max="10" // Prevents values greater than 10 from being entered
+                className="
+    w-full px-4 py-3 text-gray-700 bg-gray-200 rounded-lg shadow-md border-1 border-gray-300
+    focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white transition-all duration-200
+  "
+              />
             </div>
           </div>
           {/* Right Panel - Preview */}
@@ -584,6 +569,7 @@ const VideoEditor = () => {
                   a.href = concatenatedUrl;
                   a.download = "edited-video.mp4";
                   a.click();
+                  toast.success("Video Downloaded successfully...");
                 }}
                 className="px-6 py-3 bg-green-500 ml-4 text-white rounded-xl font-medium hover:bg-green-600 transition-all duration-200 shadow-lg shadow-green-200"
               >
