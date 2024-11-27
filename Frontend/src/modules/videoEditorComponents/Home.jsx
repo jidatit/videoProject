@@ -219,7 +219,7 @@ const VideoEditor = () => {
           estimatedTimeText = "7 to 8 minutes";
         } else {
           // Greater than 17 minutes
-          estimatedTimeText = "9+ minutes (processing may take longer)";
+          estimatedTimeText = "10+ minutes (processing may take longer)";
         }
 
         setEstimatedTime(estimatedTimeText);
@@ -291,7 +291,7 @@ const VideoEditor = () => {
       }
 
       const response = await axios.post(
-        "http://localhost:3001/concat-videos",
+        `${import.meta.env.VITE_BACKEND_URL}/concat-videos`,
         formData,
         {
           headers: {

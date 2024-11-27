@@ -8,9 +8,16 @@ const path = require("path");
 const fs = require("fs");
 
 const app = express();
-
+require("dotenv").config();
 // Enable CORS
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      `${process.env.FRONTEND_URL}`, // Add your new frontend URL here
+    ],
+    // credentials: true,
+  })
+);
 
 // Configure multer for file upload
 const upload = multer({ dest: "uploads/" });
@@ -221,7 +228,7 @@ app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
 });
 
 // Start the server
-const port = 3001;
+const port = process.env.PORT;
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
