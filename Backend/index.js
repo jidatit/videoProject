@@ -12,9 +12,10 @@ require("dotenv").config();
 // Enable CORS
 app.use(
   cors({
-    origin: [process.env.FRONTEND_URL],
-    methods: ["POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
+    origin: [
+      `${process.env.FRONTEND_URL}`, // Add your new frontend URL here
+    ],
+    // credentials: true,
   })
 );
 
@@ -26,14 +27,10 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // Create output directory if it doesn't exist
-const os = require("os");
-const outputDir = path.join(process.cwd(), "output");
-
-// Add more robust directory creation
-fs.mkdirSync(outputDir, { recursive: true });
-// if (!fs.existsSync(outputDir)) {
-//   fs.mkdirSync(outputDir);
-// }
+const outputDir = path.join(__dirname, "output");
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir);
+}
 
 // Helper function to get video information
 function getVideoInfo(inputPath) {
@@ -80,12 +77,17 @@ function normalizeVideo(
 }
 
 app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
+  console.log("API '/concat-videos' hit.");
+
   try {
+    console.log("Request received. Checking uploaded files...");
     if (req.files.length !== 2) {
+      console.error("Invalid file count. Files uploaded:", req.files.length);
       return res.status(400).send("You must upload exactly two videos.");
     }
     const { positions, offset } = req.body;
-    console.log("position: " + positions, offset);
+    console.log("Received positions:", positions, "and offset:", offset);
+
     const video1 = req.files[0].path; // First video (may not have audio)
     const video2 = req.files[1].path; // Second video (has audio or no audio)
     const processedVideo1 = path.join(
@@ -99,31 +101,42 @@ app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
     const outputPath = path.join(outputDir, "concatenated.mp4");
     const concatListPath = path.join(outputDir, "concat_list.txt");
 
+    console.log("Paths initialized:", {
+      video1,
+      video2,
+      processedVideo1,
+      processedVideo2,
+      outputPath,
+      concatListPath,
+    });
+
     try {
-      // Normalize both videos (the first video may have no audio, the second video has audio)
-      await normalizeVideo(video1, processedVideo1, 640, 360, 15); // Process video1 (first video) at lower quality
-      await normalizeVideo(video2, processedVideo2, 640, 360, 15); // Process video2 (second video) at lower quality
+      console.log("Starting video normalization...");
+      await normalizeVideo(video1, processedVideo1, 640, 360, 15);
+      console.log("Video 1 normalized successfully.");
+      await normalizeVideo(video2, processedVideo2, 640, 360, 15);
+      console.log("Video 2 normalized successfully.");
 
-      // Extract audio from processed video 1 (if available)
       const audio1Path = path.join(outputDir, "audio1.wav");
+      console.log("Starting audio extraction for Video 1...");
 
-      // Extract audio from processed video 1 (if available)
       ffmpeg(processedVideo1)
         .output(audio1Path)
-        .noVideo() // Only extract audio
-        .audioCodec("pcm_s16le") // Use pcm_s16le codec for raw audio
+        .noVideo()
+        .audioCodec("pcm_s16le")
         .on("end", () => {
-          console.log("Audio extraction for video1 completed");
+          console.log("Audio extraction for Video 1 completed.");
         })
         .on("error", (err) => {
-          console.error("Error extracting audio for video1:", err);
+          console.error("Error extracting audio for Video 1:", err);
         })
         .run();
 
-      // Wait for audio extraction to finish before proceeding with concatenation
+      console.log("Waiting for audio extraction to complete...");
       await new Promise((resolve, reject) => {
         const audioExtractionTimeout = setInterval(() => {
           if (fs.existsSync(audio1Path)) {
+            console.log("Audio file detected:", audio1Path);
             clearInterval(audioExtractionTimeout);
             resolve();
           }
@@ -131,17 +144,18 @@ app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
 
         setTimeout(() => {
           clearInterval(audioExtractionTimeout);
+          console.error("Audio extraction timed out.");
           reject(new Error("Audio extraction timed out"));
-        }, 30000); // Timeout after 30 seconds if audio extraction doesn't finish
+        }, 30000);
       });
 
-      // Create a concat list file (processedVideo2 -> processedVideo1)
+      console.log("Parsing positions...");
       const parsedPositions =
         typeof positions === "string" ? JSON.parse(positions) : positions;
 
-      console.log("Parsed Positions:", parsedPositions); // Debugging log for positions
+      console.log("Parsed positions:", parsedPositions);
 
-      // Generate the concat list based on parsedPositions
+      console.log("Generating concat list...");
       if (parsedPositions.start === true && parsedPositions.end === true) {
         fs.writeFileSync(
           concatListPath,
@@ -166,41 +180,35 @@ app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
       } else {
         throw new Error("Invalid positions: Cannot create concat list.");
       }
-      // Check if concat_list.txt exists
-      if (!fs.existsSync(concatListPath)) {
-        throw new Error(
-          `Concat list file not found at path: ${concatListPath}`
-        );
-      }
+
       console.log(
-        "Concat list file created successfully:",
+        "Concat list file created:",
         fs.readFileSync(concatListPath, "utf-8")
       );
 
-      // Concatenate videos with stream mapping
+      console.log("Starting video concatenation...");
       ffmpeg()
         .input(concatListPath)
         .inputOptions("-f", "concat", "-safe", "0")
         .input(audio1Path)
-        .outputOptions("-map", "0:v") // Map video from concat list
-        .outputOptions("-map", "[delayed_audio]") // Map the delayed audio
+        .outputOptions("-map", "0:v")
+        .outputOptions("-map", "[delayed_audio]")
         .outputOptions(
           "-filter_complex",
-          `
-      [1:a]adelay=${offset * 1000}:all=1[delayed_audio]
-    `
-        ) // Explicitly delay the audio using adelay filter
+          `[1:a]adelay=${offset * 1000}:all=1[delayed_audio]`
+        )
         .outputOptions("-c:v", "copy")
         .outputOptions("-c:a", "aac")
         .outputOptions("-pix_fmt", "yuv420p")
         .on("end", () => {
+          console.log("Concatenation completed successfully.");
           res.download(outputPath, (err) => {
             if (err) {
               console.error("Error downloading the file:", err);
               return res.status(500).send("Error downloading the file");
             }
 
-            // Cleanup code
+            console.log("Download successful. Cleaning up temporary files...");
             try {
               [
                 video1,
@@ -212,18 +220,20 @@ app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
                 audio1Path,
               ].forEach((file) => {
                 try {
+                  console.log("Deleting file:", file);
                   fs.unlinkSync(file);
                 } catch (cleanupErr) {
                   console.error(`Error deleting ${file}:`, cleanupErr);
                 }
               });
+              console.log("Cleanup completed.");
             } catch (cleanupErr) {
               console.error("Error during cleanup:", cleanupErr);
             }
           });
         })
         .on("error", (err) => {
-          console.error("FFmpeg error:", err);
+          console.error("FFmpeg error during concatenation:", err);
           res.status(500).send("Video concatenation failed: " + err.message);
         })
         .save(outputPath);
@@ -232,7 +242,7 @@ app.post("/concat-videos", upload.array("videos", 2), async (req, res) => {
       res.status(500).send("Error processing videos: " + err.message);
     }
   } catch (err) {
-    console.error("Detailed Error:", {
+    console.error("Unhandled error:", {
       message: err.message,
       stack: err.stack,
       name: err.name,
