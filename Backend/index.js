@@ -12,10 +12,10 @@ require("dotenv").config();
 // Enable CORS
 app.use(
   cors({
-    origin: [
-      `${process.env.FRONTEND_URL}`, // Add your new frontend URL here
-    ],
-    // credentials: true,
+    origin: process.env.FRONTEND_URL || "http://localhost:5173", // Allow frontend URL
+    methods: ["GET", "POST"], // Allow only specific methods
+    allowedHeaders: ["Content-Type"], // Allow specific headers
+    credentials: true, // Allow cookies if needed
   })
 );
 
