@@ -51,7 +51,6 @@ const VideoEditor = () => {
   };
   const generateVideoClip = async (position, colors, timeOptions) => {
     if (!logoSrc) return;
-    console.log("position", position);
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     canvas.width = 640;
@@ -170,7 +169,6 @@ const VideoEditor = () => {
 
   useEffect(() => {
     if (logoPositions.start || logoPositions.end) {
-      console.log("Animation", logoPositions);
       if (logoDuration > 10) {
         toast.error("Duration exceeded 10 seconds, adjusting to 10 seconds");
       } else {
